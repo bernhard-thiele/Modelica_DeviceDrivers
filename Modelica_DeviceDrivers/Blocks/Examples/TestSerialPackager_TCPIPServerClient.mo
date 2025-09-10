@@ -51,7 +51,8 @@ model TestSerialPackager_TCPIPServerClient
     startTime=1,
     port=10002,
     outputBufferSize=3*4,
-    inputBufferSize=3*4)                       annotation (Placement(
+    inputBufferSize=3*4,
+    serverIsReady=tcpipserverconfig.isReady)   annotation (Placement(
         transformation(
         extent={{-10,-10},{10,10}},
         rotation=270,
@@ -127,8 +128,7 @@ a client is provided as C code test program
           color={238,46,47},
           pattern=LinePattern.Dash),
         Text(
-          extent={{-124,-64},{128,-116}},
-          textColor={28,108,200},
-          textString=
-              "TODO: Try to introduce an initialization flag similar to OPCUA blocks, possibly using new isReady() method as first test.")}));
+          extent={{82,8},{216,-10}},
+          lineColor={28,108,200},
+          textString="TODO: serverIsReady input needed?")}));
 end TestSerialPackager_TCPIPServerClient;

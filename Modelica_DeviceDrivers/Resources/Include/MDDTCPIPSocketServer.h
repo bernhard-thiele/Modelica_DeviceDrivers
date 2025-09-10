@@ -39,6 +39,7 @@ struct MDDTCPIPServer_s {
   int* recvbufslen; /**< array of receive buffer length for each client socket  */
   char** recvbufs; /**< array of receive buffer for each client socket  */
   int runAcceptingThread;
+  int serverReady;  /**< Flag indicating server is ready for connections */
   HANDLE hThread;
   CRITICAL_SECTION tcpipLock;
 };
@@ -139,6 +140,7 @@ DllExport void * MDD_TCPIPServer_Constructor(int serverport, int maxClients, int
     }
     tcpip->listenSocket = INVALID_SOCKET;
     tcpip->runAcceptingThread = 1;
+    tcpip->serverReady = 0; /* Initially not ready */
 
     // Initialize Winsock
     iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
@@ -196,6 +198,7 @@ DllExport void * MDD_TCPIPServer_Constructor(int serverport, int maxClients, int
         MDD_TCPIPServer_Destructor(tcpip); // Explicit call, because it won't be called automatically by Modelica, since object not constructed, yet.
         ModelicaFormatError("MDDTCPIPSocketServer.h:%d: listen failed with error: %d\n", __LINE__, WSAGetLastError());
     }
+    tcpip->serverReady = 1; // After listen() Server is already ready for taking connections
     ModelicaFormatMessage("MDDTCPIPSocketServer.h: TCP/IP server in %s mode configured for maximal %d clients listening at port %d.\n",
         useNonblockingMode ? "non-blocking" : "blocking", tcpip->maxClients, serverport);
 
@@ -249,6 +252,17 @@ DllExport void MDD_TCPIPServer_Destructor(void * p_tcpip) {
         free(tcpip);
     }
     WSACleanup();
+}
+
+/** Check if TCP/IP server is ready for accepting connections.
+ *
+ * @param[in] p_tcpip Pointer to the MDDTCPIPServer instance
+ * @return 1 if server is ready, 0 if not ready
+ */
+DllExport int MDD_TCPIPServer_IsReady(void * p_tcpip) {
+    MDDTCPIPServer* tcpip = (MDDTCPIPServer*) p_tcpip;
+
+    return tcpip->serverReady;
 }
 
 /** Check for connected clients. */
@@ -400,7 +414,7 @@ DllExport void MDD_TCPIPServer_ReadP(void * p_tcpip, void* p_package, int client
     else {
         *nRecvBytes = recv(clientSocket, tcpip->recvbufs[clientIndexC], tcpip->recvbufslen[clientIndexC], 0);
         if (*nRecvBytes > 0) {
-            /* ModelicaFormatMessage("MDDTCPIPSocketServer.h:%d: Got %d bytes reading: %s\n", *nRecvBytes, __LINE__, tcpip->recvbuf); */
+            /* ModelicaFormatMessage("MDDTCPIPSocketServer.h:%d: Got %d bytes reading: %s\n", __LINE__, *nRecvBytes, tcpip->recvbufs[clientIndexC]); */
             rc = MDD_SerialPackagerSetDataWithErrorReturn(p_package, tcpip->recvbufs[clientIndexC], *nRecvBytes);
             if (rc) {
                 ModelicaFormatError("MDDTCPIPSocketServer.h:%d: MDD_TCPIPServer_ReadP failed. Buffer overflow.\n", __LINE__);

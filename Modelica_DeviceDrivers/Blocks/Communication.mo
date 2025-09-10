@@ -335,6 +335,7 @@ See <a href=\"modelica://Modelica_DeviceDrivers.Blocks.Examples.TestSerialPackag
       "Buffer size of message data in bytes." annotation(Dialog(group="Outgoing data"));
     parameter Integer inputBufferSize=16*1024
       "Buffer size of message data in bytes." annotation(Dialog(group="Incoming data"));
+    input Boolean serverIsReady = true "Use if TCP/IP server is started in same model to ensure that server is ready before a connect attempt is made" annotation(Dialog(group = "Advanced"));
     Interfaces.PackageIn pkgIn annotation (Placement(transformation(
           extent={{-20,-20},{20,20}},
           rotation=270,
@@ -351,9 +352,10 @@ See <a href=\"modelica://Modelica_DeviceDrivers.Blocks.Examples.TestSerialPackag
     when initial() then
       pkgIn.userPkgBitSize = outputBufferSize*8;
       pkgIn.autoPkgBitSize = 0;
-      // Modelica.Utilities.Streams.print("TCPIP_Client_IO: Before connect_");
+      Modelica.Utilities.Streams.print("TCPIP_Client_IO: Before connect_");
+      assert(serverIsReady, "TCP/IP server must be ready for accepting connections");
       isConnected = Modelica_DeviceDrivers.Communication.TCPIPSocketClient_.connect_(socket, IPAddress, port);
-      // Modelica.Utilities.Streams.print("TCPIP_Client_IO: After connect_");
+      Modelica.Utilities.Streams.print("TCPIP_Client_IO: After connect_");
     end when;
     pkgIn.backwardTrigger = actTrigger "using inherited trigger";
     pkgOut.trigger = pkgIn.backwardTrigger;
@@ -1372,6 +1374,11 @@ See <a href=\"modelica://Modelica_DeviceDrivers.Blocks.Examples.TestSerialPackag
     parameter Integer maxClients = 1 "Maximum number of clients that can connect simultaneously";
     parameter Boolean useNonblockingMode = true "=true, use non-blocking TCP/IP socket, otherwise receiving and sending will block" annotation(Dialog(group="Advanced"), choices(checkBox=true));
     output Modelica_DeviceDrivers.Communication.TCPIPServer tcpipserver = Modelica_DeviceDrivers.Communication.TCPIPServer(port, maxClients, useNonblockingMode) "Device handle";
+    output Boolean isReady "Intended for indicating that tcpipserver has been instantiated and is ready for accepting connects";
+  initial equation
+    isReady = Modelica_DeviceDrivers.Communication.TCPIPServer_.isReady(tcpipserver);
+  equation
+    isReady = pre(isReady);
     annotation (
     defaultComponentName="tcpipserverconfig",
     defaultComponentPrefixes="inner",missingInnerMessage="The TCPIPServerConfig component is missing! A default component is added, but its configuration is most likely not what you want!",

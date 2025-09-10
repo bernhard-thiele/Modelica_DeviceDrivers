@@ -88,7 +88,7 @@ package TCPIPServer_ "Accompanying functions for the TCP/IP server"
     extends Modelica.Icons.UnderConstruction;
     input Modelica_DeviceDrivers.Communication.TCPIPServer tcpipserver;
     output Boolean ready;
-    external "C" ready = MDD_TCPIPServer_MDD_TCPIPServer_IsReady(tcpipserver)
+    external "C" ready = MDD_TCPIPServer_IsReady(tcpipserver)
     annotation(Include = "#include \"MDDTCPIPSocketServer.h\"",
            Library = {"pthread", "Ws2_32"},
            __iti_dll = "ITI_MDD.dll",
