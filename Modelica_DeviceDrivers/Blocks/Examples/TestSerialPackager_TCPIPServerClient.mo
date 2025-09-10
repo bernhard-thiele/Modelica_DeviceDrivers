@@ -125,5 +125,10 @@ a client is provided as C code test program
           textString="Infinite block"),                                       Line(
           points={{0,100},{0,-100},{0,-100}},
           color={238,46,47},
-          pattern=LinePattern.Dash)}));
+          pattern=LinePattern.Dash),
+        Text(
+          extent={{-124,-64},{128,-116}},
+          textColor={28,108,200},
+          textString=
+              "TODO: Try to introduce an initialization flag similar to OPCUA blocks, possibly using new isReady() method as first test.")}));
 end TestSerialPackager_TCPIPServerClient;

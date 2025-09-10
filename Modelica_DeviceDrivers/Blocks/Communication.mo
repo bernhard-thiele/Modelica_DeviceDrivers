@@ -1,4 +1,4 @@
-﻿within Modelica_DeviceDrivers.Blocks;
+within Modelica_DeviceDrivers.Blocks;
 package Communication "Blocks for communication devices such as network, CAN, shared memory, etc."
     extends Modelica.Icons.Package;
   block SharedMemoryRead
@@ -351,7 +351,9 @@ See <a href=\"modelica://Modelica_DeviceDrivers.Blocks.Examples.TestSerialPackag
     when initial() then
       pkgIn.userPkgBitSize = outputBufferSize*8;
       pkgIn.autoPkgBitSize = 0;
+      // Modelica.Utilities.Streams.print("TCPIP_Client_IO: Before connect_");
       isConnected = Modelica_DeviceDrivers.Communication.TCPIPSocketClient_.connect_(socket, IPAddress, port);
+      // Modelica.Utilities.Streams.print("TCPIP_Client_IO: After connect_");
     end when;
     pkgIn.backwardTrigger = actTrigger "using inherited trigger";
     pkgOut.trigger = pkgIn.backwardTrigger;

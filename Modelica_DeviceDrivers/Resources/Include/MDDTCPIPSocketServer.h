@@ -536,6 +536,7 @@ struct MDDTCPIPServer_s {
   int* recvbufslen; /**< array of receive buffer length for each client socket  */
   char** recvbufs; /**< array of receive buffer for each client socket  */
   int runAcceptingThread;
+  int serverReady;  /**< Flag indicating server is ready for connections */
   pthread_t hThread;
   pthread_mutex_t tcpipLock;
 };
@@ -677,6 +678,7 @@ DllExport void * MDD_TCPIPServer_Constructor(int serverport, int maxClients, int
     }
     tcpip->listenSocket = -1; /* Denote invalid socket as value -1 (the error return value of socket(...)) */
     tcpip->runAcceptingThread = 1;
+    tcpip->serverReady = 0; /* Initially not ready */
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
@@ -742,21 +744,22 @@ DllExport void * MDD_TCPIPServer_Constructor(int serverport, int maxClients, int
 
     freeaddrinfo(result);
 
-    iResult = listen(tcpip->listenSocket, SOMAXCONN);
-    if (iResult == -1) {
-        err = errno;
-        MDD_TCPIPServer_Destructor(tcpip); // Explicit call, because it won't be called automatically by Modelica, since object not constructed, yet.
-        ModelicaFormatError("MDDTCPIPSocketServer.h:%d: listen failed (%s)\n", __LINE__, strerror(err));
-    }
-    ModelicaFormatMessage("MDDTCPIPSocketServer.h: TCP/IP server in %s mode configured for maximal %d clients listening at port %d.\n",
-        useNonblockingMode ? "non-blocking" : "blocking", tcpip->maxClients, serverport);
-
     iResult = pthread_mutex_init(&(tcpip->tcpipLock), NULL); /* Init mutex with defaults */
     if (iResult != 0) {
         err = errno;
         MDD_TCPIPServer_Destructor(tcpip); // Explicit call, because it won't be called automatically by Modelica, since object not constructed, yet.
         ModelicaFormatError("MDDTCPIPSocketServer.h:%d: pthread_mutex_init failed (%s).\n", __LINE__, strerror(err));
     }
+
+    iResult = listen(tcpip->listenSocket, SOMAXCONN);
+    if (iResult == -1) {
+        err = errno;
+        MDD_TCPIPServer_Destructor(tcpip); // Explicit call, because it won't be called automatically by Modelica, since object not constructed, yet.
+        ModelicaFormatError("MDDTCPIPSocketServer.h:%d: listen failed (%s)\n", __LINE__, strerror(err));
+    }
+    tcpip->serverReady = 1; // After listen() Server is already ready for taking connections
+    ModelicaFormatMessage("MDDTCPIPSocketServer.h: TCP/IP server in %s mode configured for maximal %d clients listening at port %d.\n",
+        useNonblockingMode ? "non-blocking" : "blocking", tcpip->maxClients, serverport);
 
     iResult = pthread_create(&tcpip->hThread, 0, &MDD_TCPIPServer_acceptingThread, tcpip);
     if (iResult) {
@@ -777,6 +780,7 @@ DllExport void MDD_TCPIPServer_Destructor(void * p_tcpip) {
 
     /* ModelicaFormatMessage("MDDTCPIPSocketServer.h: MDD_TCPIPServer_Destructor\n"); */
     if (tcpip) {
+        tcpip->serverReady = 0;
         tcpip->runAcceptingThread = 0;
         for (i = 0; i < tcpip->maxClients; ++i) {
             if (tcpip->clientSockets[i] != -1) {
@@ -815,6 +819,17 @@ DllExport void MDD_TCPIPServer_Destructor(void * p_tcpip) {
         free(tcpip->recvbufslen);
         free(tcpip);
     }
+}
+
+/** Check if TCP/IP server is ready for accepting connections.
+ *
+ * @param[in] p_tcpip Pointer to the MDDTCPIPServer instance
+ * @return 1 if server is ready, 0 if not ready
+ */
+DllExport int MDD_TCPIPServer_IsReady(void * p_tcpip) {
+    MDDTCPIPServer * tcpip = (MDDTCPIPServer *) p_tcpip;
+
+    return tcpip->serverReady;
 }
 
 /** Check for connected clients. */
