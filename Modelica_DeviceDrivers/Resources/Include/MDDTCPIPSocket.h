@@ -423,29 +423,8 @@ const char * MDD_TCPIPClient_Read(void *p_tcpip, int recvbuflen) {
 
 /** Read data from TCP/IP socket.
  *
- * @param p_tcpip pointer address to the tcpip socket data structure
- * @param p_package pointer to the SerialPackager
- * @param recvbuflen length of message buffer
- */
-void MDD_TCPIPClient_ReadP_Blocking(void *p_tcpip, void *p_package, int recvbuflen) {
-    MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
-    ssize_t nread;
-    int rc;
-    char *tcpBuf = (char *)malloc(recvbuflen);
-
-    nread = read(tcpip->sfd, tcpBuf, recvbuflen);
-    if (nread == -1) {
-        ModelicaFormatError("MDDTCPIPSocket.h: read(..) failed (%s).\n",
-                            strerror(errno));
-    }
-    rc = MDD_SerialPackagerSetDataWithErrorReturn(p_package, tcpBuf, nread);
-    free(tcpBuf);
-    if (rc) {
-        ModelicaError("MDDTCPIPSocket.h: MDD_SerialPackagerSetData failed. Buffer overflow.\n");
-    }
-}
-
-/** Non-blocking read data from TCP/IP socket.
+ * Should work for blocking and non-blocking sockets.
+ *
  * @param p_tcpip pointer address to the tcpip socket data structure
  * @param p_package pointer to the SerialPackager
  * @param recvbuflen length of message buffer
@@ -486,63 +465,6 @@ void MDD_TCPIPClient_ReadP(void *p_tcpip, void *p_package, int recvbuflen) {
         }
     }
     //ModelicaFormatMessage("MDDTCPIPSocket.h:%d: MDD_TCPIPClient_ReadP END: %d\n", __LINE__, tcpip->sfd);
-}
-
-/** Non-blocking read data from TCP/IP socket.
- * @param p_tcpip pointer address to the tcpip socket data structure
- * @param p_package pointer to the SerialPackager
- * @param recvbuflen length of message buffer
- * @param bytes_read pointer to store actual bytes read (can be NULL)
- * @return 1 on success (data read), 0 if no data available, -1 on error
- */
-int MDD_TCPIPClient_ReadP_NonBlocking(void *p_tcpip, void *p_package, int recvbuflen, int *bytes_read) {
-    MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
-    ssize_t nread;
-    int rc;
-    char *tcpBuf;
-
-    if (bytes_read) *bytes_read = 0;
-
-    if (!tcpip || !p_package) return -1;
-
-    tcpBuf = (char *)malloc(recvbuflen);
-    if (!tcpBuf) {
-        ModelicaFormatError("MDDTCPIPSocket.h: malloc() failed.\n");
-        return -1;
-    }
-
-    nread = read(tcpip->sfd, tcpBuf, recvbuflen);
-
-    if (nread == -1) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // No data available right now - this is normal for non-blocking
-            free(tcpBuf);
-            return 0;
-        } else {
-            // Actual error
-            ModelicaFormatError("MDDTCPIPSocket.h: read(..) failed (%s).\n",
-                                strerror(errno));
-            free(tcpBuf);
-            return -1;
-        }
-    } else if (nread == 0) {
-        // Connection closed by peer
-        free(tcpBuf);
-        return -1;
-    } else {
-        // Successfully read data
-        if (bytes_read) *bytes_read = (int)nread;
-
-        rc = MDD_SerialPackagerSetDataWithErrorReturn(p_package, tcpBuf, nread);
-        free(tcpBuf);
-
-        if (rc) {
-            ModelicaError("MDDTCPIPSocket.h: MDD_SerialPackagerSetData failed. Buffer overflow.\n");
-            return -1;
-        }
-
-        return 1;
-    }
 }
 
 #else

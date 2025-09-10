@@ -143,11 +143,15 @@ to `tCPIP_Client_IO.serverIsReady` input
 for ensuring correct starting sequence"),
           Bitmap(extent={{-70,80},{-50,100}}, fileName="modelica://Modelica_DeviceDrivers/Resources/Images/Icons/Architetto----Esperiment-chimico.png"),
         Text(
-          extent={{-50,100},{50,80}},
+          extent={{-50,94},{50,74}},
           lineColor={238,46,47},
           horizontalAlignment=TextAlignment.Left,
           textString="This is a bit experimental.
 TODO Windows API updates!
 TODO Debug mode with trace-prints for read/write etc
-TODO Windows CAPI (TCPIPSocketClient_.connect_!)")}));
+TODO Windows CAPI (TCPIPSocketClient_.connect_!)
+TODO Client: Inconsistent? handling of non-blocking read (skip for that sample) and write (try until timeout kicks in)
+TODO Server: Inconsistent? handling of non-blocking read  and write, both skip for that sample
+TODO Are read/write in client/server really generic enough that they work correctly for non-block and block?
+TODO CAPI probably needs DLLExport for SimX and possibly use `static` for helper functions")}));
 end TestSerialPackager_TCPIPServerClient;
