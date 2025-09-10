@@ -549,8 +549,9 @@ struct MDDTCPIPServer_s {
   int* nRecvBytes; /**< array of number of received bytes for each client socket */
   int* recvbufslen; /**< array of receive buffer length for each client socket  */
   char** recvbufs; /**< array of receive buffer for each client socket  */
-  int runAcceptingThread;
+  int useNonblockingMode; /**< Flag indicating if server uses non-blocking mode */
   int serverReady;  /**< Flag indicating server is ready for connections */
+  int runAcceptingThread;
   pthread_t hThread;
   pthread_mutex_t tcpipLock;
 };
@@ -563,6 +564,7 @@ void * MDD_TCPIPServer_acceptingThread(void * p_tcpip) {
     int* clientSockets = (int*)calloc(tcpip->maxClients, sizeof(int));
     struct pollfd sock_poll;
     int maxClients = tcpip->maxClients;
+    int useNonblockingMode = tcpip->useNonblockingMode;
     int isFirstLoop = 1;
     int i = 0, j = 0;
     int ready = 0;
@@ -617,6 +619,18 @@ void * MDD_TCPIPServer_acceptingThread(void * p_tcpip) {
                                 pthread_exit(NULL); /* Unreachable code if ModelicaFormatError() works properly */
                             }
                         }
+
+                        if (useNonblockingMode) {
+                            int flags = fcntl(clientSockets[i], F_GETFL, 0);
+                            if (flags == -1) {
+                                ModelicaFormatError("MDDTCPIPSocketServer.h:%d: Failed to get client socket flags (client index %d): %s\n", __LINE__, i + 1, strerror(errno));
+                            }
+                            ModelicaFormatMessage("MDDTCPIPSocketServer.h: Setting client socket at index %d to non-blocking mode.\n", i + 1);
+                            if (fcntl(clientSockets[i], F_SETFL, flags | O_NONBLOCK) == -1) {
+                                ModelicaFormatError("MDDTCPIPSocketServer.h:%d: Failed to set non-blocking mode for client socket (client index %d): %s\n", __LINE__ , i + 1, strerror(errno));
+                            }
+                        }
+
                         pthread_mutex_lock(&(tcpip->tcpipLock));
                         tcpip->clientSockets[i] = clientSockets[i];
                         pthread_mutex_unlock(&(tcpip->tcpipLock));
@@ -691,8 +705,10 @@ DllExport void * MDD_TCPIPServer_Constructor(int serverport, int maxClients, int
         tcpip->recvbufs[i] = NULL;
     }
     tcpip->listenSocket = -1; /* Denote invalid socket as value -1 (the error return value of socket(...)) */
-    tcpip->runAcceptingThread = 1;
+    tcpip->useNonblockingMode = useNonblockingMode;
     tcpip->serverReady = 0; /* Initially not ready */
+    tcpip->runAcceptingThread = 1;
+    tcpip->hThread = 0; /* Initially no thread */
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
@@ -791,8 +807,7 @@ DllExport void MDD_TCPIPServer_Destructor(void * p_tcpip) {
     struct timespec ts;
     int i = 0;
 
-
-    /* ModelicaFormatMessage("MDDTCPIPSocketServer.h: MDD_TCPIPServer_Destructor\n"); */
+    // ModelicaFormatMessage("MDDTCPIPSocketServer.h:%d: MDD_TCPIPServer_Destructor\n", __LINE__);
     if (tcpip) {
         tcpip->serverReady = 0;
         tcpip->runAcceptingThread = 0;
@@ -842,7 +857,7 @@ DllExport void MDD_TCPIPServer_Destructor(void * p_tcpip) {
  */
 DllExport int MDD_TCPIPServer_IsReady(void * p_tcpip) {
     MDDTCPIPServer * tcpip = (MDDTCPIPServer *) p_tcpip;
-
+    ModelicaFormatMessage("MDDTCPIPSocketServer.h: MDD_TCPIPServer_IsReady: serverReady=%d\n", tcpip->serverReady);
     return tcpip->serverReady;
 }
 
@@ -1034,7 +1049,6 @@ DllExport void MDD_TCPIPServer_ReadP(void * p_tcpip, void* p_package, int client
             ModelicaFormatError("MDDTCPIPSocketServer.h:%d: recv failed for client %d (%s).\n", __LINE__, clientIndex, strerror(errno));
         }
     }
-
     tcpip->nRecvBytes[clientIndexC] = *nRecvBytes;
 }
 

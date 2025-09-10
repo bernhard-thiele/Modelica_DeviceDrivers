@@ -10,8 +10,9 @@ package TCPIPSocketClient_ "Accompanying functions for the TCP/IP socket client 
     input TCPIPSocketClient socketClient;
     input String ip "IP address";
     input Integer port "Port";
+    input Boolean useNonBlockingMode = false "=false, receiving and sending will block, otherwise use non-blocking TCP/IP socket";
     output Boolean isConnected;
-    external "C" isConnected = MDD_TCPIPClient_Connect(socketClient, ip, port)
+    external "C" isConnected = MDD_TCPIPClient_Connect(socketClient, ip, port, useNonBlockingMode)
     annotation(Include = "#include \"MDDTCPIPSocket.h\"",
            Library = {"pthread", "Ws2_32"},
            __iti_dll = "ITI_MDD.dll",

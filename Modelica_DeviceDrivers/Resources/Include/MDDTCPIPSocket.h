@@ -190,6 +190,7 @@ DllExport void MDD_TCPIPClient_ReadP(void * p_tcpip, void* p_package, int recvbu
 #include <string.h> /* memset(..) */
 #include <errno.h>
 #include <unistd.h> /* close */
+#include <fcntl.h>  /* fcntl() */
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -203,17 +204,44 @@ struct MDDTCPIPSocket_s {
     int sfd;  /**< socket file descriptor. */
 };
 
+/** Set socket to non-blocking mode.
+ * @param p_tcpip pointer address to the tcpip socket data structure
+ * @return 1 on success, 0 on failure
+ */
+int MDD_TCPIPClient_SetNonBlocking(void *p_tcpip) {
+    MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
+    int flags;
+
+    if (!tcpip) return 0;
+
+    flags = fcntl(tcpip->sfd, F_GETFL, 0);
+    if (flags == -1) {
+        ModelicaFormatError("MDDTCPIPSocket.h: fcntl(F_GETFL) failed (%s).\n", strerror(errno));
+        return 0;
+    }
+
+    if (fcntl(tcpip->sfd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        ModelicaFormatError("MDDTCPIPSocket.h: fcntl(F_SETFL) failed (%s).\n", strerror(errno));
+        return 0;
+    }
+
+    return 1;
+}
+
+
 /** Create a TCPIP socket.
  */
 void * MDD_TCPIPClient_Constructor(void) {
     MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)malloc(sizeof(MDDTCPIPSocket));
 
-    tcpip->sfd = socket(PF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (tcpip->sfd < 0) {
-        ModelicaFormatError("MDDTCPIPSocket.h: socket(..) failed (%s)\n",
-                            strerror(errno));
+    if (!tcpip) {
+        ModelicaFormatError("MDDTCPIPSocket.h:%d: malloc() failed\n", __LINE__);
     }
-    ModelicaFormatMessage("Created server socket handle: %d\n", tcpip->sfd);
+
+    // Initialize socket descriptor to invalid value
+    tcpip->sfd = -1;
+
+    ModelicaFormatMessage("MDDTCPIPSocket.h: Created TCPIPClient structure\n");
 
     return (void *)tcpip;
 }
@@ -224,22 +252,25 @@ void * MDD_TCPIPClient_Constructor(void) {
 void MDD_TCPIPClient_Destructor(void *p_tcpip) {
     MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
 
-    if (close(tcpip->sfd) == -1) {
-        ModelicaFormatError("MDDTCPIPSocket.h: close() failed (%s)\n",
-                            strerror(errno));
+    if (tcpip->sfd != -1) {
+        if (close(tcpip->sfd) == -1) {
+            ModelicaFormatError("MDDTCPIPSocket.h:%d: close() failed (%s)\n", __LINE__, strerror(errno));
+        }
+        ModelicaFormatMessage("Closed TCP/IP socket with socket handle %d\n", tcpip->sfd);
     }
 
-    ModelicaFormatMessage("Closed TCP/IP socket with socket handle %d\n", tcpip->sfd);
     free(tcpip);
 }
+
 
 /** Connect client to server
  * @param p_tcpip pointer address to the tcpip socket data structure
  * @param ipaddress (Remote) IP address to connect to
  * @param port (Remote) port to connect to
+ * @param useNonblockingMode If useNonblockingMode != 0, configure socket for non-blocking mode, otherwise blocking is enabled
  * @return returns 1
  */
-int MDD_TCPIPClient_Connect(void *p_tcpip, const char *ipaddress, int port) {
+int MDD_TCPIPClient_Connect(void *p_tcpip, const char *ipaddress, int port, int useNonblockingMode) {
     MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
@@ -257,8 +288,7 @@ int MDD_TCPIPClient_Connect(void *p_tcpip, const char *ipaddress, int port) {
     snprintf(port_str, 20, "%d", port);
     s = getaddrinfo(ipaddress, port_str, &hints, &result);
     if (s != 0) {
-        ModelicaFormatError("MDDTCPIPSocket.h: getaddrinfo(..) failed (%s) \n",
-                            gai_strerror(s));
+        ModelicaFormatError("MDDTCPIPSocket.h: getaddrinfo(..) failed (%s) \n", gai_strerror(s));
     }
 
     /* getaddrinfo() returns a list of address structures.
@@ -268,14 +298,20 @@ int MDD_TCPIPClient_Connect(void *p_tcpip, const char *ipaddress, int port) {
         if (tcpip->sfd == -1)
             continue;
 
-        if (connect(tcpip->sfd, rp->ai_addr, rp->ai_addrlen) != -1)
+        if (connect(tcpip->sfd, rp->ai_addr, rp->ai_addrlen) != -1) {
+            if (useNonblockingMode) {
+                if (!MDD_TCPIPClient_SetNonBlocking(tcpip)) {
+                    ModelicaFormatMessage("Warning: Failed to set socket to non-blocking mode\n");
+                }
+            }
             break;  /* Success */
+        }
 
         close(tcpip->sfd);
     }
 
     if (rp == NULL) {  /* No address succeeded */
-        ModelicaFormatError("MDDTCPIPSocket.h: Unable to connect to server.\n");
+        ModelicaFormatError("MDDTCPIPSocket.h:%d: Unable to connect to server.\n", __LINE__);
     } else {
       ModelicaFormatMessage("Connected to  %s:%d ...\n", ipaddress, port);
     }
@@ -286,6 +322,9 @@ int MDD_TCPIPClient_Connect(void *p_tcpip, const char *ipaddress, int port) {
 }
 
 /** Send data via TCP/IP socket.
+ *
+ * Works for blocking and non-blocking socket.
+ *
  * @param p_tcpip pointer address to the tcpip socket data structure
  * @param data pointer to data that should be sent
  * @param dataSize size of data to be sent in byte
@@ -295,24 +334,56 @@ int MDD_TCPIPClient_Send(void *p_tcpip, const char *data, int dataSize) {
     MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
     int amt, sent = 0;
 
+    // ModelicaFormatMessage("MDDTCPIPSocket.h:%d MDD_TCPIPClient_Send BEGIN: %d\n", __LINE__, tcpip->sfd);
+
     /* Repeatedly call write until the entire buffer is sent. */
     while (sent < dataSize) {
-        amt = write(tcpip->sfd, data+sent, dataSize-sent);
+        amt = write(tcpip->sfd, data + sent, dataSize - sent);
 
-        if (amt <= 0) {
+        if (amt > 0) {
+            /* Update position by the number of bytes that were sent. */
+            sent += amt;
+        } else if (amt == 0) {
             /* Zero-byte writes are OK if they are caused by signals (EINTR).
-            Otherwise they mean the socket has been closed. */
+               Otherwise they mean the socket has been closed. */
             if (errno == EINTR) {
                 continue;
+            }
+            ModelicaFormatError("MDDTCPIPSocket.h:%d:, write() returned 0, connection may be closed.\n", __LINE__);
+        } else {
+            /* amt < 0 - check errno */
+            if (errno == EINTR) {
+                /* Interrupted by signal, just retry */
+                continue;
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                /* Use select() to wait until socket is ready for writing */
+                fd_set writefds;
+                struct timeval timeout;
+                int select_result;
+
+                FD_ZERO(&writefds);
+                FD_SET(tcpip->sfd, &writefds);
+
+                timeout.tv_sec = 5;   // 5 second timeout
+                timeout.tv_usec = 0;
+
+                select_result = select(tcpip->sfd + 1, NULL, &writefds, NULL, &timeout);
+
+                if (select_result > 0) {
+                    continue;  // Socket is ready, try writing again
+                } else if (select_result == 0) {
+                    ModelicaFormatError("MDDTCPIPSocket.h:%d: Write timeout after 5 seconds.\n", __LINE__);
+                } else {
+                    ModelicaFormatError("MDDTCPIPSocket.h:%d: select() failed (%s).\n", __LINE__, strerror(errno));
+                }
             } else {
-                ModelicaFormatError("MDDTCPIPSocket.h: write(..) failed (%s).\n",
-                                    strerror(errno));
+                ModelicaFormatError("MDDTCPIPSocket.h:%d: write(..) failed (%s).\n", __LINE__, strerror(errno));
+                return 0;
             }
         }
-
-        /* Update position by the number of bytes that were sent. */
-        sent += amt;
     }
+
+    // ModelicaFormatMessage("MDDTCPIPSocket.h:%d MDD_TCPIPClient_Send END: %d (sent %d bytes)\n", __LINE__, tcpip->sfd, sent);
     return 1;
 }
 
@@ -356,7 +427,7 @@ const char * MDD_TCPIPClient_Read(void *p_tcpip, int recvbuflen) {
  * @param p_package pointer to the SerialPackager
  * @param recvbuflen length of message buffer
  */
-void MDD_TCPIPClient_ReadP(void *p_tcpip, void *p_package, int recvbuflen) {
+void MDD_TCPIPClient_ReadP_Blocking(void *p_tcpip, void *p_package, int recvbuflen) {
     MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
     ssize_t nread;
     int rc;
@@ -371,6 +442,106 @@ void MDD_TCPIPClient_ReadP(void *p_tcpip, void *p_package, int recvbuflen) {
     free(tcpBuf);
     if (rc) {
         ModelicaError("MDDTCPIPSocket.h: MDD_SerialPackagerSetData failed. Buffer overflow.\n");
+    }
+}
+
+/** Non-blocking read data from TCP/IP socket.
+ * @param p_tcpip pointer address to the tcpip socket data structure
+ * @param p_package pointer to the SerialPackager
+ * @param recvbuflen length of message buffer
+ */
+void MDD_TCPIPClient_ReadP(void *p_tcpip, void *p_package, int recvbuflen) {
+    MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
+    ssize_t nread;
+    int rc;
+    char *tcpBuf;
+
+    tcpBuf = (char *)malloc(recvbuflen);
+    if (!tcpBuf) {
+        ModelicaFormatError("MDDTCPIPSocket.h: malloc() failed.\n");
+    }
+
+    // ModelicaFormatMessage("MDDTCPIPSocketServer.h:%d: MDD_TCPIPServer_ReadP END\n", __LINE__);
+    nread = read(tcpip->sfd, tcpBuf, recvbuflen);
+
+    if (nread == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No data available right now - this is normal for non-blocking
+            free(tcpBuf);
+        } else {
+            // Actual error
+            free(tcpBuf);
+            ModelicaFormatError("MDDTCPIPSocket.h:%d: read(..) failed (%s).\n", __LINE__, strerror(errno));
+        }
+    } else if (nread == 0) {
+        // Connection closed by peer
+        free(tcpBuf);
+    } else {
+        // Successfully read data
+        rc = MDD_SerialPackagerSetDataWithErrorReturn(p_package, tcpBuf, nread);
+        free(tcpBuf);
+
+        if (rc) {
+            ModelicaFormatError("MDDTCPIPSocket.h:%d: MDD_SerialPackagerSetData failed. Buffer overflow.\n", __LINE__);
+        }
+    }
+    //ModelicaFormatMessage("MDDTCPIPSocket.h:%d: MDD_TCPIPClient_ReadP END: %d\n", __LINE__, tcpip->sfd);
+}
+
+/** Non-blocking read data from TCP/IP socket.
+ * @param p_tcpip pointer address to the tcpip socket data structure
+ * @param p_package pointer to the SerialPackager
+ * @param recvbuflen length of message buffer
+ * @param bytes_read pointer to store actual bytes read (can be NULL)
+ * @return 1 on success (data read), 0 if no data available, -1 on error
+ */
+int MDD_TCPIPClient_ReadP_NonBlocking(void *p_tcpip, void *p_package, int recvbuflen, int *bytes_read) {
+    MDDTCPIPSocket *tcpip = (MDDTCPIPSocket *)p_tcpip;
+    ssize_t nread;
+    int rc;
+    char *tcpBuf;
+
+    if (bytes_read) *bytes_read = 0;
+
+    if (!tcpip || !p_package) return -1;
+
+    tcpBuf = (char *)malloc(recvbuflen);
+    if (!tcpBuf) {
+        ModelicaFormatError("MDDTCPIPSocket.h: malloc() failed.\n");
+        return -1;
+    }
+
+    nread = read(tcpip->sfd, tcpBuf, recvbuflen);
+
+    if (nread == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No data available right now - this is normal for non-blocking
+            free(tcpBuf);
+            return 0;
+        } else {
+            // Actual error
+            ModelicaFormatError("MDDTCPIPSocket.h: read(..) failed (%s).\n",
+                                strerror(errno));
+            free(tcpBuf);
+            return -1;
+        }
+    } else if (nread == 0) {
+        // Connection closed by peer
+        free(tcpBuf);
+        return -1;
+    } else {
+        // Successfully read data
+        if (bytes_read) *bytes_read = (int)nread;
+
+        rc = MDD_SerialPackagerSetDataWithErrorReturn(p_package, tcpBuf, nread);
+        free(tcpBuf);
+
+        if (rc) {
+            ModelicaError("MDDTCPIPSocket.h: MDD_SerialPackagerSetData failed. Buffer overflow.\n");
+            return -1;
+        }
+
+        return 1;
     }
 }
 
